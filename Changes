@@ -1,4 +1,8 @@
 Revision history for Perl extension PerlX::MethodCallWithBlock
 
+0.02
+- make it works when no arg list is given
+- reimplement the parsing part with PPI
+
 0.01    Mon Aug 31 20:41:26 2009
         - original version
