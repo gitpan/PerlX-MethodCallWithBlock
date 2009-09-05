@@ -19,6 +19,7 @@ meta-spec:
 name: PerlX-MethodCallWithBlock
 no_index:
   directory:
+    - examples
     - inc
     - t
     - xt
@@ -31,4 +32,4 @@ requires:
 resources:
   license: http://opensource.org/licenses/mit-license.php
   repository: git://github.com/gugod/PerlX-MethodCallWithBlock.git
-version: 0.02
+version: 0.03

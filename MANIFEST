@@ -1,4 +1,6 @@
 Changes
+examples/enum.pl
+examples/schwartzian-transform.pl
 inc/Module/Install.pm
 inc/Module/Install/AuthorTests.pm
 inc/Module/Install/Base.pm
@@ -19,6 +21,8 @@ Makefile.PL
 MANIFEST			This list of files
 META.yml
 README
+t/chain.t
+t/enum.t
 t/lib/Echo.pm
 t/more.t
 t/no-arg-list.t

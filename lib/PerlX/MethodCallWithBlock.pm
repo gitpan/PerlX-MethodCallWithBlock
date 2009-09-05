@@ -2,7 +2,7 @@ package PerlX::MethodCallWithBlock;
 use strict;
 use warnings;
 use 5.010;
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use Devel::Declare ();
 use B::Hooks::EndOfScope ();
@@ -13,116 +13,117 @@ use PPI::Document;
 sub inject_close_paren {
     my $linestr = Devel::Declare::get_linestr;
     my $offset = Devel::Declare::get_linestr_offset;
-    substr($linestr, $offset, 0) = ');';
+    substr($linestr, $offset, 0) = ')';
     Devel::Declare::set_linestr($linestr);
 }
 
-sub block_checker {
+sub const_checker {
     my ($op, @args) = @_;
     my $linestr = Devel::Declare::get_linestr;
     my $offset = Devel::Declare::get_linestr_offset;
     my $code = substr($linestr, $offset);
 
     my $doc = PPI::Document->new(\$code);
+    return unless $doc;
+
+    # find the structure of "->method(...) {"
+    my $found = $doc->find(
+        sub {
+            my $el = $_[1];
+            return 0 unless $el->class eq 'PPI::Token::Operator' && $el->content eq '->';
+            my $word = $el->snext_sibling or return 0;
+            return 0 unless $word->class eq 'PPI::Token::Word';
+
+            my $args = $word->snext_sibling or return 0;
+            if ($args->class eq 'PPI::Structure::List') {
+                my $block = $args->snext_sibling or return 0;
+                return 0 unless $block->class eq 'PPI::Structure::Block';
+            }
+            elsif ($args->class ne 'PPI::Structure::Block') {
+                return 0
+            }
+
+            return 1;
+        }
+    );
+    return unless $found;
 
     my $injected_code = 'sub { BEGIN { B::Hooks::EndOfScope::on_scope_end(\&PerlX::MethodCallWithBlock::inject_close_paren); }';
 
-    map {
-        my $node = $_;
-        my @children = $node->schildren;
-        my @classes = map { $_->class } @children;
+    my $pnode;
+    $code = "";
+    for my $node (@$found) {
+        $pnode = $node;
 
-        if (@children == 4) {
-            # find something looks like "Foo::Bar->baz {"
-            if ($classes[0] eq 'PPI::Token::Word'
-                    && $classes[1] eq 'PPI::Token::Operator'
-                    && $children[1]->content eq '->'
-                    && $classes[2] eq 'PPI::Token::Word'
-                    && $classes[3] eq 'PPI::Structure::Block'
-            ) {
-                $code = $node->content;
-                $code =~ s/\s*\{$/($injected_code/;
-                substr($linestr, $offset) = $code;
-                Devel::Declare::set_linestr($linestr);
+        while($pnode) {
+            my $prev_node = $pnode;
+            while ($prev_node = $prev_node->previous_sibling) {
+                $code = $prev_node->content . $code;
             }
-            elsif ($classes[0] eq 'PPI::Token::Operator'
-                    && $children[0]->content eq '->'
-                    && $classes[1] eq 'PPI::Token::Word'
-                    && $classes[2] eq 'PPI::Structure::List'
-                    && $classes[3] eq 'PPI::Structure::Block'
-            ) {
-                $code = $children[0]->content . $children[1]->content;
-                my $args = $children[2]->content;
-                $args =~ s/\)$/,$injected_code/;
-                $code .= $args;
-
-                substr($linestr, $offset) = $code;
-                Devel::Declare::set_linestr($linestr);
-            }
+            $pnode = $pnode->parent;
         }
-        elsif (@children == 5) {
-            # find something looks like "Foo::Bar->baz(...) {"
-            if ($classes[0] eq 'PPI::Token::Word'
-                    && $classes[1] eq 'PPI::Token::Operator'
-                    && $children[1]->content eq '->'
-                    && $classes[2] eq 'PPI::Token::Word'
-                    && $classes[3] eq 'PPI::Structure::List'
-                    && $classes[4] eq 'PPI::Structure::Block'
-            ) {
-                $code = $children[0]->content
-                    . $children[1]->content
-                    . $children[2]->content;
-                my $args = $children[3]->content;
-                $args =~ s/\)$/,$injected_code/;
-                $code .= $args;
 
-                substr($linestr, $offset) = $code;
-                Devel::Declare::set_linestr($linestr);
-            }
+        $code .= join "", map { $_->content } ($node, $node->snext_sibling);
+        my $word = $node->snext_sibling;
+        if ($word->snext_sibling->class eq 'PPI::Structure::Block') {
+            $code .= "($injected_code";
         }
+        else {
+            my $args = $word->snext_sibling->content;
+            $args =~ s/\)$/,$injected_code/;
+            $code .= $args;
+        }
+
+        substr($linestr, $offset) = $code;
+        Devel::Declare::set_linestr($linestr);
     }
-    grep {
-        $_->class eq 'PPI::Statement'
-    } $doc->schildren;
 }
 
-sub pushmark_checker {
+sub lineseq_checker {
     my ($op, @args) = @_;
     my $offset = Devel::Declare::get_linestr_offset;
     $offset += Devel::Declare::toke_skipspace($offset);
     my $linestr = Devel::Declare::get_linestr;
     my $code = substr($linestr, $offset);
     my $doc = PPI::Document->new(\$code);
+    $doc->index_locations;
 
-    map {
-        my $node = $_;
-        my @children = $node->schildren;
-        my @classes = map { $_->class } @children;
-        if (@children == 4) {
-            if ($classes[0] eq 'PPI::Token::Symbol'
-                    && $classes[1] eq 'PPI::Token::Operator'
-                    && $children[1]->content eq '->'
-                    && $classes[2] eq 'PPI::Token::Word'
-                    && $classes[3] eq 'PPI::Structure::Block'
-            ) {
-                my $injected_code = 'sub { BEGIN { B::Hooks::EndOfScope::on_scope_end(\&PerlX::MethodCallWithBlock::inject_close_paren); }';
-                $code = join "", map { $_->content } @children[0,1,2];
-                $code .= "($injected_code";
-                substr($linestr, $offset) = $code;
-                Devel::Declare::set_linestr($linestr);
-            }
+    # find the structure of "->method {"
+    my $found = $doc->find(
+        sub {
+            my $el = $_[1];
+            return 0 unless $el->class eq 'PPI::Token::Operator' && $el->content eq '->';
+            my $word = $el->snext_sibling or return 0;
+            return 0 unless $word->class eq 'PPI::Token::Word';
+            my $block = $word->snext_sibling or return 0;
+            return 0 unless $block->class eq 'PPI::Structure::Block';
+            return 1;
         }
+    );
+    return unless $found;
+
+    my $injected_code = 'sub { BEGIN { B::Hooks::EndOfScope::on_scope_end(\&PerlX::MethodCallWithBlock::inject_close_paren); }';
+
+    my $pnode;
+    $code = "";
+    for my $node (@$found) {
+        $pnode = $node;
+        while($pnode = $pnode->previous_sibling) {
+            $code = $pnode->content . $code;
+        }
+        $code .= join "", map { $_->content } ($node, $node->snext_sibling);
+        $code .= "($injected_code";
+
+        substr($linestr, $offset) = $code;
+        Devel::Declare::set_linestr($linestr);
     }
-    grep {
-        $_->class eq 'PPI::Statement'
-    } $doc->schildren;
 }
 
 sub import {
     my $linestr = Devel::Declare::get_linestr();
     my $offset  = Devel::Declare::get_linestr_offset();
 
-    substr($linestr, $offset, 0) = q[use B::OPCheck const => check => \&PerlX::MethodCallWithBlock::block_checker;use B::OPCheck pushmark => check => \&PerlX::MethodCallWithBlock::pushmark_checker;];
+    substr($linestr, $offset, 0) = q[use B::OPCheck const => check => \&PerlX::MethodCallWithBlock::const_checker;use B::OPCheck lineseq => check => \&PerlX::MethodCallWithBlock::lineseq_checker;];
     Devel::Declare::set_linestr($linestr);
 }
 
@@ -166,11 +167,9 @@ This version is released as a proof that it can be done. However, the
 internally parsing code for translating codes are very fragile at this
 moment.
 
-Also this is not working yet:
-
-    $obj->some_method {
-        ...
-    };
+It's very possible that your code breaks after you re-indent it. You
+should send me that piece of code as a failing test if you find such
+cases.
 
 =head1 AUTHOR
 
