@@ -28,8 +28,9 @@ requires:
   B::OPCheck: 0.28
   Devel::Declare: 0.005011
   PPI: 1.203
+  autobox: 2.55
   perl: 5.10.0
 resources:
   license: http://opensource.org/licenses/mit-license.php
   repository: git://github.com/gugod/PerlX-MethodCallWithBlock.git
-version: 0.03
+version: 0.04

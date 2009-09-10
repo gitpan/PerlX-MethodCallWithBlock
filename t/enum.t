@@ -1,30 +1,14 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use FindBin;
+use lib "$FindBin::Bin/lib";
+
 use 5.010;
-
-use lib '../lib';
-
-package MyEnum;
-
-sub new {
-    my ($class, @x) = @_;
-    return bless [ @x ], $class;
-}
-
-sub each {
-    my ($self, $cb) = @_;
-
-    my $i = 0;
-    for my $x (@$self) {
-        local $_ = $x;
-        $cb->($i++);
-    }
-}
-
-package main;
-use Test::More;
 use PerlX::MethodCallWithBlock;
+
+use MyEnum;
+use Test::More;
 
 my $x = MyEnum->new(0..10);
 
